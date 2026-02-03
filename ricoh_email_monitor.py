@@ -156,8 +156,9 @@ def run():
             product_id = g.get("id", "")
             stock = g.get("stock", "未知")
             price = g.get("price", "未知")
-            link = f"https://newsite.ricn-mall.com/goods_detail?goods_id={product_id}" if product_id else ""
-            body += f"- {name}\n  价格: ¥{price}\n  库存: {stock}\n  链接: {link}\n\n"
+            pc_link = f"https://newsite.ricn-mall.com/goods_detail/{product_id}" if product_id else ""
+            mobile_link = f"https://newsite.ricn-mall.com/pages/goods_details/index?id={product_id}" if product_id else ""
+            body += f"- {name}\n  价格: ¥{price}\n  库存: {stock}\n  电脑端: {pc_link}\n  手机端: {mobile_link}\n\n"
 
         for receiver in RECEIVER_EMAILS:
             try:
