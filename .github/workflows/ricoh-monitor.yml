@@ -56,6 +56,7 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           RECEIVER_EMAILS: ${{ secrets.RECEIVER_EMAILS }}
           STATE_PATH: ${{ env.STATE_FILE }}
+          KEYWORD: "RICOH GR III"
         run: python ricoh_email_monitor.py
 
       - name: Save state to Gist

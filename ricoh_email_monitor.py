@@ -145,25 +145,19 @@ def run():
 
     state["last_success_ts"] = int(time.time())
 
-    # 筛选匹配关键词的商品
-    matched = [g for g in all_goods if KEYWORD in g.get("store_name", "")]
+    # 筛选匹配关键词且有货的商品
+    in_stock = [g for g in all_goods if KEYWORD in g.get("store_name", "") and g.get("stock", 0) > 0]
 
-    # 去重：仅通知新商品（基于 goods_id，回退到 store_name）
-    known_ids = set(state.get("last_ids", []))
-    new_goods = []
-    for g in matched:
-        gid = str(g.get("goods_id", "")) or g.get("store_name", "")
-        if gid and gid not in known_ids:
-            new_goods.append(g)
-
-    if new_goods:
-        subject = f'提醒：理光映像商城上新包含"{KEYWORD}"的商品'
-        body = "以下是新上架的商品：\n\n"
-        for g in new_goods:
+    if in_stock:
+        subject = f'提醒：理光映像商城"{KEYWORD}"商品有货了！'
+        body = "以下商品有货：\n\n"
+        for g in in_stock:
             name = g.get("store_name", "未知")
-            goods_id = g.get("goods_id", "")
-            link = f"https://newsite.ricn-mall.com/goods_detail?goods_id={goods_id}" if goods_id else ""
-            body += f"- {name}\n  链接: {link}\n\n"
+            product_id = g.get("id", "")
+            stock = g.get("stock", "未知")
+            price = g.get("price", "未知")
+            link = f"https://newsite.ricn-mall.com/goods_detail?goods_id={product_id}" if product_id else ""
+            body += f"- {name}\n  价格: ¥{price}\n  库存: {stock}\n  链接: {link}\n\n"
 
         for receiver in RECEIVER_EMAILS:
             try:
@@ -171,14 +165,20 @@ def run():
                 print(f"已发送邮件至 {receiver}")
             except Exception as e:
                 print(f"发送邮件失败 ({receiver}): {e}")
-
-        new_ids = [str(g.get("goods_id", "")) or g.get("store_name", "") for g in new_goods]
-        state["last_ids"] = (state.get("last_ids", []) + new_ids)[-200:]
     else:
-        print(f'未发现新的"{KEYWORD}"商品')
+        print(f'未发现有货的"{KEYWORD}"商品')
+
+    # 记录当前有货商品（仅用于状态追踪）
+    state["last_goods"] = [{
+        "id": str(g.get("id", "")),
+        "name": g.get("store_name", ""),
+        "price": g.get("price", ""),
+        "stock": g.get("stock", 0),
+        "ts": int(time.time())
+    } for g in in_stock][-50:]
 
     save_state(state)
-    return {"status": "ok", "new_count": len(new_goods)}
+    return {"status": "ok", "in_stock_count": len(in_stock)}
 
 # ============ 云函数入口 ============
 def handler(event, context):
