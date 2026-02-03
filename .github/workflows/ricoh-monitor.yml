@@ -57,6 +57,7 @@ jobs:
           RECEIVER_EMAILS: ${{ secrets.RECEIVER_EMAILS }}
           STATE_PATH: ${{ env.STATE_FILE }}
           KEYWORD: ${{ secrets.KEYWORD }}
+          NOTIFY_ZERO_STOCK: ${{ secrets.NOTIFY_ZERO_STOCK }}
         run: python ricoh_email_monitor.py
 
       - name: Save state to Gist

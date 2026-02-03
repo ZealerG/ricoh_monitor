@@ -24,6 +24,7 @@ CID = int(os.environ.get("CID", "9"))
 KEYWORD = os.environ.get("KEYWORD", "GR")
 STATE_PATH = os.environ.get("STATE_PATH", "./ricoh_email_monitor.state.json")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "30"))
+NOTIFY_ZERO_STOCK = os.environ.get("NOTIFY_ZERO_STOCK", "false").lower() == "true"
 
 # ============ User-Agent 池 ============
 USER_AGENTS = [
@@ -145,13 +146,16 @@ def run():
 
     state["last_success_ts"] = int(time.time())
 
-    # 筛选匹配关键词且有货的商品
-    in_stock = [g for g in all_goods if KEYWORD in g.get("store_name", "") and g.get("stock", 0) > 0]
+    # 筛选匹配关键词的商品（NOTIFY_ZERO_STOCK=true 时包含无货商品）
+    if NOTIFY_ZERO_STOCK:
+        matched = [g for g in all_goods if KEYWORD in g.get("store_name", "")]
+    else:
+        matched = [g for g in all_goods if KEYWORD in g.get("store_name", "") and g.get("stock", 0) > 0]
 
-    if in_stock:
+    if matched:
         subject = f'提醒：理光映像商城"{KEYWORD}"商品有货了！'
         body = "以下商品有货：\n\n"
-        for g in in_stock:
+        for g in matched:
             name = g.get("store_name", "未知")
             product_id = g.get("id", "")
             stock = g.get("stock", "未知")
@@ -169,17 +173,17 @@ def run():
     else:
         print(f'未发现有货的"{KEYWORD}"商品')
 
-    # 记录当前有货商品（仅用于状态追踪）
+    # 记录当前匹配商品（仅用于状态追踪）
     state["last_goods"] = [{
         "id": str(g.get("id", "")),
         "name": g.get("store_name", ""),
         "price": g.get("price", ""),
         "stock": g.get("stock", 0),
         "ts": int(time.time())
-    } for g in in_stock][-50:]
+    } for g in matched][-50:]
 
     save_state(state)
-    return {"status": "ok", "in_stock_count": len(in_stock)}
+    return {"status": "ok", "matched_count": len(matched)}
 
 # ============ 云函数入口 ============
 def handler(event, context):
