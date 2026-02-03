@@ -1,0 +1,68 @@
+name: Ricoh GR Monitor
+
+on:
+  repository_dispatch:
+    types: [monitor_trigger]
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'  # 备用：每5分钟
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ricoh-monitor
+  cancel-in-progress: false
+
+env:
+  GIST_ID: ${{ secrets.GIST_ID }}
+  STATE_FILE: ricoh_monitor_state.json
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Restore state from Gist
+        id: restore
+        env:
+          GH_TOKEN: ${{ secrets.GIST_PAT }}
+        run: |
+          if gh gist view $GIST_ID -f $STATE_FILE > $STATE_FILE 2>/dev/null; then
+            echo "restored=true" >> $GITHUB_OUTPUT
+          else
+            echo '{}' > $STATE_FILE
+            echo "restored=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run monitor
+        timeout-minutes: 5
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          RECEIVER_EMAILS: ${{ secrets.RECEIVER_EMAILS }}
+          STATE_PATH: ${{ env.STATE_FILE }}
+        run: python ricoh_email_monitor.py
+
+      - name: Save state to Gist
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GIST_PAT }}
+        run: |
+          if [ -f $STATE_FILE ]; then
+            gh gist edit $GIST_ID -f $STATE_FILE $STATE_FILE
+          fi
