@@ -1,1 +1,26 @@
+# AI 编程相关
 .ace-tool/
+.claude/
+openspec/
+AGENTS.md
+CLAUDE.md
+
+# Moodle 脚本
+moodle-grading-assistant.user.js
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+ricoh_script/
+
+# 状态文件
+*.state.json
+ricoh_monitor_state.json
+
+# 系统文件
+.DS_Store
+
+# 环境变量
+.env
+*.env.local
