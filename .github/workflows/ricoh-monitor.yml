@@ -17,6 +17,7 @@ concurrency:
 env:
   GIST_ID: ${{ secrets.GIST_ID }}
   STATE_FILE: ricoh_monitor_state.json
+  PYTHONUNBUFFERED: "1"
 
 jobs:
   monitor:
@@ -40,7 +41,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GIST_PAT }}
         run: |
-          if gh gist view $GIST_ID -f $STATE_FILE > $STATE_FILE 2>/dev/null; then
+          if [ -n "$GIST_ID" ] && [ -n "$GH_TOKEN" ] && gh gist view "$GIST_ID" -f "$STATE_FILE" > "$STATE_FILE" 2>/dev/null; then
             echo "restored=true" >> $GITHUB_OUTPUT
           else
             echo '{}' > $STATE_FILE
@@ -57,14 +58,17 @@ jobs:
           RECEIVER_EMAILS: ${{ secrets.RECEIVER_EMAILS }}
           STATE_PATH: ${{ env.STATE_FILE }}
           KEYWORD: ${{ secrets.KEYWORD }}
+          KEYWORDS: ${{ secrets.KEYWORDS }}
+          EXCLUDE_KEYWORDS: ${{ secrets.EXCLUDE_KEYWORDS }}
+          MATCH_MODE: ${{ secrets.MATCH_MODE }}
           NOTIFY_ZERO_STOCK: ${{ secrets.NOTIFY_ZERO_STOCK }}
         run: python ricoh_email_monitor.py
 
       - name: Save state to Gist
-        if: success()
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GIST_PAT }}
         run: |
-          if [ -f $STATE_FILE ]; then
-            gh gist edit $GIST_ID -f $STATE_FILE $STATE_FILE
+          if [ -n "$GIST_ID" ] && [ -n "$GH_TOKEN" ] && [ -f "$STATE_FILE" ]; then
+            gh gist edit "$GIST_ID" -f "$STATE_FILE" "$STATE_FILE"
           fi
