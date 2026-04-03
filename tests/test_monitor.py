@@ -1,8 +1,11 @@
 import sys
+import os
+import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -86,6 +89,46 @@ class NotificationModeTests(unittest.TestCase):
         self.assertEqual(notify_goods, [])
 
 
+class TestProductInjectionTests(unittest.TestCase):
+    def test_parse_test_products_accepts_strings_and_objects(self):
+        products, error = monitor.parse_test_products(
+            '["官翻品 RICOH GR III", {"id": "test-hdf", "store_name": "官翻品 RICOH GR IIIx HDF", "price": "6999.00", "stock": 0}]'
+        )
+
+        self.assertEqual(error, "")
+        self.assertEqual(
+            products,
+            [
+                {"id": "test-1", "store_name": "官翻品 RICOH GR III", "price": "0.00", "stock": 0},
+                {"id": "test-hdf", "store_name": "官翻品 RICOH GR IIIx HDF", "price": "6999.00", "stock": 0},
+            ],
+        )
+
+    def test_run_uses_test_products_without_fetching(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = str(Path(temp_dir) / "state.json")
+            env = {
+                "SMTP_USER": "sender@example.com",
+                "SMTP_PASSWORD": "secret",
+                "RECEIVER_EMAILS": "receiver@example.com",
+                "STATE_PATH": state_path,
+                "KEYWORDS": "GR III,GR IIIx,HDF",
+                "MATCH_MODE": "any",
+                "ALERT_MODE": "presence",
+                "NOTIFY_ZERO_STOCK": "true",
+                "TEST_PRODUCTS_JSON": '[{"id":"test-gr3","store_name":"官翻品 RICOH GR III","price":"5999.00","stock":0}]',
+            }
+            with patch.dict(os.environ, env, clear=False), patch.object(
+                monitor, "fetch_products", side_effect=AssertionError("should not fetch live products")
+            ), patch.object(monitor, "send_email") as mocked_send_email:
+                result = monitor.run()
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["matched_count"], 1)
+        self.assertEqual(result["notify_count"], 1)
+        mocked_send_email.assert_called_once()
+
+
 class EmailFormattingTests(unittest.TestCase):
     def test_build_email_content_accepts_raw_current_goods(self):
         config = {
@@ -150,6 +193,7 @@ class ConfigLoggingTests(unittest.TestCase):
             "exclude_keywords": ["配件"],
             "match_mode": "any",
             "alert_mode": "presence",
+            "test_products": [{"id": "test-1"}],
             "notify_zero_stock": True,
             "poll_interval": 30,
             "state_path": "ricoh_monitor_state.json",

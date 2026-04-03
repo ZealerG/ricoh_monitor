@@ -36,6 +36,7 @@
   - `EXCLUDE_KEYWORDS`
   - `MATCH_MODE`
   - `ALERT_MODE`
+  - `TEST_PRODUCTS_JSON`
   - `NOTIFY_ZERO_STOCK`
 
 这样 workflow 日志里能看到这些非敏感配置的实际生效值。如果你继续把它们放在 `Secrets` 里，GitHub 可能会把日志里的对应值自动遮罩成 `***`。
@@ -56,6 +57,7 @@
 | `EXCLUDE_KEYWORDS` | Variable | 排除词，逗号分隔（如 `RING,金圈,配件`） |
 | `MATCH_MODE` | Variable | `any` 或 `all`，默认 `any` |
 | `ALERT_MODE` | Variable | `presence` 或 `change`，默认 `presence` |
+| `TEST_PRODUCTS_JSON` | Variable | 手动测试用的模拟商品 JSON，配置后会跳过官网请求 |
 | `NOTIFY_ZERO_STOCK` | Variable | 是否连 0 库存商品也通知，默认 `false` |
 
 3. 如需比 5 分钟更高的频率，可配置 cron-job.org 触发 `repository_dispatch`
@@ -71,6 +73,7 @@
 - `EXCLUDE_KEYWORDS`
 - `MATCH_MODE`
 - `ALERT_MODE`
+- `TEST_PRODUCTS_COUNT`
 - `NOTIFY_ZERO_STOCK`
 - `POLL_INTERVAL`
 - `STATE_PATH`
@@ -125,20 +128,53 @@ NOTIFY_ZERO_STOCK="false"
    - `ALERT_MODE=change`：只有“命中商品快照发生变化”时才给全部收件人发提醒邮件。
    - `change` 模式下，变化包含：新商品出现、库存变化、价格变化。
 
-6. 异常处理
+6. 手动测试逻辑
+   - 如果配置了 `TEST_PRODUCTS_JSON`，脚本会跳过官网请求，直接把这份 JSON 当成“当前页面商品列表”。
+   - 这样可以在 GitHub Actions 手动运行时，稳定测试 `GR III`、`GR IIIx`、`HDF` 这些关键词命中和发信流程。
+   - 测试完成后务必清空 `TEST_PRODUCTS_JSON`，否则后续正式监控会一直使用模拟数据。
+
+7. 异常处理
    - 如果遇到 `config_error`、`http_error`、`network_error`、`response_error`、`email_error` 或 `403_cooldown`，脚本会尽量给 `RECEIVER_EMAILS` 的第一个地址发送一封诊断邮件。
    - 诊断邮件会包含错误类型、错误信息、关键词配置、GitHub Actions 运行信息、最近成功时间、冷却状态等。
    - 同一类失败不会每 5 分钟都发，会按“错误签名变化立即发，否则每 6 小时最多再发一次”的策略节流。
    - 如果 SMTP 本身故障，异常诊断邮件也可能发不出去，这种情况会在 Action 日志和 Summary 中体现。
 
-7. 403 策略
+8. 403 策略
    - 遇到 403 时不会直接停 6 小时。
    - 现在使用递增冷却：从 15 分钟开始翻倍，最大 2 小时。
    - 冷却状态也会写回 Gist，避免下一次运行继续硬撞接口。
 
-8. 状态持久化
+9. 状态持久化
    - 无论本次运行成功还是失败，workflow 都会尝试把最新 state 保存回 Gist。
    - 这样即使失败，也不会丢失冷却信息和去重信息。
+
+## 如何测试 GR III / GR IIIx / HDF
+
+如果官网当下没有这几个商品，最稳的办法是临时设置 `TEST_PRODUCTS_JSON` 后手动运行 workflow：
+
+```json
+[
+  {"id":"test-gr3","store_name":"官翻品 RICOH GR III","price":"5999.00","stock":0},
+  {"id":"test-gr3x-hdf","store_name":"官翻品 RICOH GR IIIx HDF","price":"6999.00","stock":0}
+]
+```
+
+建议同时配成：
+
+```bash
+KEYWORDS="GR III,GR IIIx,HDF"
+MATCH_MODE="any"
+ALERT_MODE="presence"
+NOTIFY_ZERO_STOCK="true"
+```
+
+这样手动跑 `workflow_dispatch` 时，脚本会把上面的两条模拟商品当成当前网页商品，你就能直接验证：
+
+- 关键词是否命中
+- `presence` 模式下是否发提醒邮件
+- `NOTIFY_ZERO_STOCK=true` 时 0 库存商品是否也会提醒
+
+测试完成后，把 `TEST_PRODUCTS_JSON` 清空再恢复正式监控。
 
 ### 本地运行
 
@@ -152,6 +188,7 @@ export RECEIVER_EMAILS="receiver@example.com"
 export KEYWORDS="GR III,GR IIIx,HDF"
 export EXCLUDE_KEYWORDS="RING,金圈,配件"
 export ALERT_MODE="presence"
+# export TEST_PRODUCTS_JSON='["官翻品 RICOH GR III","官翻品 RICOH GR IIIx HDF"]'
 
 # 单次运行
 python3 ricoh_email_monitor.py

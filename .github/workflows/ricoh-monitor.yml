@@ -64,6 +64,7 @@ jobs:
           EXCLUDE_KEYWORDS: ${{ vars.EXCLUDE_KEYWORDS || secrets.EXCLUDE_KEYWORDS }}
           MATCH_MODE: ${{ vars.MATCH_MODE || secrets.MATCH_MODE }}
           ALERT_MODE: ${{ vars.ALERT_MODE || secrets.ALERT_MODE }}
+          TEST_PRODUCTS_JSON: ${{ vars.TEST_PRODUCTS_JSON || secrets.TEST_PRODUCTS_JSON }}
           NOTIFY_ZERO_STOCK: ${{ vars.NOTIFY_ZERO_STOCK || secrets.NOTIFY_ZERO_STOCK }}
         run: python ricoh_email_monitor.py
 

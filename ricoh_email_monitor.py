@@ -72,6 +72,52 @@ def parse_csv_env(value):
     return [item.strip() for item in normalized.split(",") if item.strip()]
 
 
+def parse_test_products(value):
+    if not value:
+        return [], ""
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        return [], f"TEST_PRODUCTS_JSON 不是合法 JSON: {exc}"
+
+    if not isinstance(payload, list):
+        return [], "TEST_PRODUCTS_JSON 必须是数组"
+
+    products = []
+    for index, item in enumerate(payload, start=1):
+        if isinstance(item, str):
+            name = item.strip()
+            if not name:
+                return [], "TEST_PRODUCTS_JSON 中的商品名称不能为空"
+            products.append(
+                {
+                    "id": f"test-{index}",
+                    "store_name": name,
+                    "price": "0.00",
+                    "stock": 0,
+                }
+            )
+            continue
+
+        if not isinstance(item, dict):
+            return [], "TEST_PRODUCTS_JSON 数组元素必须是字符串或对象"
+
+        name = str(item.get("store_name") or item.get("name") or "").strip()
+        if not name:
+            return [], "TEST_PRODUCTS_JSON 中的对象必须包含 name 或 store_name"
+
+        products.append(
+            {
+                "id": str(item.get("id") or f"test-{index}").strip() or f"test-{index}",
+                "store_name": name,
+                "price": str(item.get("price", "0.00")).strip(),
+                "stock": stock_value(item.get("stock", 0)),
+            }
+        )
+
+    return products, ""
+
+
 def normalize_text(value):
     return " ".join(str(value or "").strip().lower().split())
 
@@ -81,6 +127,7 @@ def load_config():
     exclude_keywords = parse_csv_env(os.environ.get("EXCLUDE_KEYWORDS", ""))
     match_mode = os.environ.get("MATCH_MODE", "any").strip().lower() or "any"
     alert_mode = os.environ.get("ALERT_MODE", "presence").strip().lower() or "presence"
+    test_products, test_products_error = parse_test_products(os.environ.get("TEST_PRODUCTS_JSON", "").strip())
     if match_mode not in {"any", "all"}:
         match_mode = "any"
     if alert_mode not in {"presence", "change"}:
@@ -99,6 +146,8 @@ def load_config():
         "exclude_keywords_normalized": [normalize_text(item) for item in exclude_keywords if normalize_text(item)],
         "match_mode": match_mode,
         "alert_mode": alert_mode,
+        "test_products": test_products,
+        "test_products_error": test_products_error,
         "state_path": os.environ.get("STATE_PATH", DEFAULT_STATE_PATH).strip() or DEFAULT_STATE_PATH,
         "poll_interval": parse_int(os.environ.get("POLL_INTERVAL"), DEFAULT_POLL_INTERVAL),
         "notify_zero_stock": parse_bool(os.environ.get("NOTIFY_ZERO_STOCK"), default=False),
@@ -112,6 +161,8 @@ def validate_config(config):
     errors = []
     if not config["include_keywords_normalized"]:
         errors.append("KEYWORD 或 KEYWORDS 至少需要配置一个关键词")
+    if config["test_products_error"]:
+        errors.append(config["test_products_error"])
     if not config["receiver_emails"]:
         errors.append("RECEIVER_EMAILS 不能为空")
     if not config["smtp_user"]:
@@ -148,6 +199,7 @@ def print_effective_config(config):
     print(f"EXCLUDE_KEYWORDS={config['exclude_keywords'] or []}")
     print(f"MATCH_MODE={config['match_mode']}")
     print(f"ALERT_MODE={config['alert_mode']}")
+    print(f"TEST_PRODUCTS_COUNT={len(config['test_products'])}")
     print(f"NOTIFY_ZERO_STOCK={config['notify_zero_stock']}")
     print(f"POLL_INTERVAL={config['poll_interval']}")
     print(f"STATE_PATH={config['state_path']}")
@@ -585,84 +637,89 @@ def run():
         return result
 
     now = int(time.time())
+    use_test_products = bool(config["test_products"])
 
-    if now < state.get("cooldown_until", 0):
+    if not use_test_products and now < state.get("cooldown_until", 0):
         remaining = state["cooldown_until"] - now
         print(f"处于冷却期，跳过请求（剩余 {remaining} 秒）")
         result = {"status": "cooldown", "remaining": remaining, "matched_count": 0, "changed_count": 0, "notify_count": 0}
         append_github_summary(result, config)
         return result
 
-    session = create_session(state.get("ua_index", 0))
-    state["ua_index"] = (state.get("ua_index", 0) + 1) % len(USER_AGENTS)
+    if use_test_products:
+        all_goods = list(config["test_products"])
+        print(f"使用 TEST_PRODUCTS_JSON 注入测试商品，跳过官网请求，共 {len(all_goods)} 条")
+    else:
+        session = create_session(state.get("ua_index", 0))
+        state["ua_index"] = (state.get("ua_index", 0) + 1) % len(USER_AGENTS)
 
-    all_goods = []
-    page = 1
-    try:
-        while True:
-            goods, total = fetch_products(session, config, page=page)
-            all_goods.extend(goods)
-            print(f">>> 第 {page} 页: 本页 {len(goods)} 条，累计 {len(all_goods)}/{total} 条")
-            if not goods or len(all_goods) >= total:
-                break
-            page += 1
-            time.sleep(1.8 + random.uniform(-0.6, 0.6))
-    except requests.exceptions.HTTPError as exc:
-        if exc.response is not None and exc.response.status_code == 403:
-            cooldown_seconds = compute_403_cooldown(state)
-            state["cooldown_until"] = int(time.time()) + cooldown_seconds
-            state["last_result"] = "403_cooldown"
-            print(f"403 Forbidden，进入 {cooldown_seconds} 秒冷却期")
-            result = {"status": "403_cooldown", "matched_count": 0, "changed_count": 0, "notify_count": 0}
+        all_goods = []
+        page = 1
+        try:
+            while True:
+                goods, total = fetch_products(session, config, page=page)
+                all_goods.extend(goods)
+                print(f">>> 第 {page} 页: 本页 {len(goods)} 条，累计 {len(all_goods)}/{total} 条")
+                if not goods or len(all_goods) >= total:
+                    break
+                page += 1
+                time.sleep(1.8 + random.uniform(-0.6, 0.6))
+        except requests.exceptions.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 403:
+                cooldown_seconds = compute_403_cooldown(state)
+                state["cooldown_until"] = int(time.time()) + cooldown_seconds
+                state["last_result"] = "403_cooldown"
+                print(f"403 Forbidden，进入 {cooldown_seconds} 秒冷却期")
+                result = {"status": "403_cooldown", "matched_count": 0, "changed_count": 0, "notify_count": 0}
+                notify_failure_if_needed(result, config, state)
+                save_state(state, config["state_path"])
+                append_github_summary(result, config)
+                return result
+
+            state["last_result"] = "http_error"
+            print(f"HTTP 错误: {exc}")
+            result = {
+                "status": "http_error",
+                "error": str(exc),
+                "matched_count": 0,
+                "changed_count": 0,
+                "notify_count": 0,
+                "traceback": traceback.format_exc(),
+            }
             notify_failure_if_needed(result, config, state)
             save_state(state, config["state_path"])
             append_github_summary(result, config)
             return result
-
-        state["last_result"] = "http_error"
-        print(f"HTTP 错误: {exc}")
-        result = {
-            "status": "http_error",
-            "error": str(exc),
-            "matched_count": 0,
-            "changed_count": 0,
-            "notify_count": 0,
-            "traceback": traceback.format_exc(),
-        }
-        notify_failure_if_needed(result, config, state)
-        save_state(state, config["state_path"])
-        append_github_summary(result, config)
-        return result
-    except requests.exceptions.RequestException as exc:
-        state["last_result"] = "network_error"
-        print(f"网络请求失败: {exc}")
-        result = {
-            "status": "network_error",
-            "error": str(exc),
-            "matched_count": 0,
-            "changed_count": 0,
-            "notify_count": 0,
-            "traceback": traceback.format_exc(),
-        }
-        notify_failure_if_needed(result, config, state)
-        save_state(state, config["state_path"])
-        append_github_summary(result, config)
-        return result
-    except ValueError as exc:
-        state["last_result"] = "response_error"
-        print(f"接口响应异常: {exc}")
-        result = {
-            "status": "response_error",
-            "error": str(exc),
-            "matched_count": 0,
-            "changed_count": 0,
-            "notify_count": 0,
-            "traceback": traceback.format_exc(),
-        }
-        notify_failure_if_needed(result, config, state)
-        save_state(state, config["state_path"])
-        append_github_summary(result, config)
-        return result
+        except requests.exceptions.RequestException as exc:
+            state["last_result"] = "network_error"
+            print(f"网络请求失败: {exc}")
+            result = {
+                "status": "network_error",
+                "error": str(exc),
+                "matched_count": 0,
+                "changed_count": 0,
+                "notify_count": 0,
+                "traceback": traceback.format_exc(),
+            }
+            notify_failure_if_needed(result, config, state)
+            save_state(state, config["state_path"])
+            append_github_summary(result, config)
+            return result
+        except ValueError as exc:
+            state["last_result"] = "response_error"
+            print(f"接口响应异常: {exc}")
+            result = {
+                "status": "response_error",
+                "error": str(exc),
+                "matched_count": 0,
+                "changed_count": 0,
+                "notify_count": 0,
+                "traceback": traceback.format_exc(),
+            }
+            notify_failure_if_needed(result, config, state)
+            save_state(state, config["state_path"])
+            append_github_summary(result, config)
+            return result
 
     state["last_success_ts"] = int(time.time())
     state["cooldown_until"] = 0
