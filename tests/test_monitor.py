@@ -55,6 +55,28 @@ class ChangeDetectionTests(unittest.TestCase):
         )
 
 
+class EmailFormattingTests(unittest.TestCase):
+    def test_build_email_content_accepts_raw_current_goods(self):
+        config = {
+            "include_keywords": ["WG-1000"],
+            "exclude_keywords": [],
+            "match_mode": "any",
+            "notify_zero_stock": True,
+        }
+        current_goods = [
+            {"id": 132, "store_name": "官翻品 WG-1000 Gray", "price": "1519.00", "stock": 0},
+        ]
+        changed = [
+            {"id": "132", "name": "官翻品 WG-1000 Gray", "price": "1519.00", "stock": 0},
+        ]
+
+        subject, body = monitor.build_email_content(current_goods, changed, config)
+
+        self.assertIn("WG-1000", subject)
+        self.assertIn("官翻品 WG-1000 Gray", body)
+        self.assertIn("库存: 0", body)
+
+
 class FailureNotificationTests(unittest.TestCase):
     def test_same_failure_is_throttled(self):
         now = 1_700_000_000

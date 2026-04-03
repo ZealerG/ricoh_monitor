@@ -328,7 +328,8 @@ def list_goods(goods):
 
 def format_goods_lines(goods):
     lines = []
-    for item in goods:
+    normalized_goods = [normalize_snapshot(item) for item in goods]
+    for item in normalized_goods:
         product_id = item["id"]
         pc_link = f"https://newsite.ricn-mall.com/goods_detail/{product_id}" if product_id else ""
         mobile_link = f"https://newsite.ricn-mall.com/pages/goods_details/index?id={product_id}" if product_id else ""
@@ -343,6 +344,8 @@ def format_goods_lines(goods):
 
 
 def build_email_content(current_goods, changed, config):
+    normalized_current_goods = [normalize_snapshot(item) for item in current_goods]
+    normalized_changed = [normalize_snapshot(item) for item in changed]
     keyword_label = ", ".join(config["include_keywords"])
     if config["exclude_keywords"]:
         keyword_label = f"{keyword_label}（排除: {', '.join(config['exclude_keywords'])}）"
@@ -353,11 +356,11 @@ def build_email_content(current_goods, changed, config):
         f"匹配模式: {config['match_mode']}",
         f"通知零库存: {'是' if config['notify_zero_stock'] else '否'}",
         "",
-        f"本次新增或变化商品: {len(changed)} 个",
-        format_goods_lines(changed),
+        f"本次新增或变化商品: {len(normalized_changed)} 个",
+        format_goods_lines(normalized_changed),
         "",
-        f"当前命中的监控商品: {len(current_goods)} 个",
-        format_goods_lines(current_goods),
+        f"当前命中的监控商品: {len(normalized_current_goods)} 个",
+        format_goods_lines(normalized_current_goods),
     ]
     return subject, "\n".join(part for part in body_parts if part)
 
@@ -500,7 +503,7 @@ def append_github_summary(result, config):
 
 
 def exit_code_for(result):
-    failing_statuses = {"config_error", "email_error", "http_error", "network_error", "response_error"}
+    failing_statuses = {"config_error", "email_error", "http_error", "network_error", "response_error", "processing_error"}
     return 1 if result.get("status") in failing_statuses else 0
 
 
@@ -610,17 +613,17 @@ def run():
     changed_count = len(changed)
 
     if changed:
-        subject, body = build_email_content(current_goods, changed, config)
         try:
+            subject, body = build_email_content(current_goods, changed, config)
             send_email(subject, body, config)
             print(f"已发送邮件至 {', '.join(config['receiver_emails'])}")
             state["last_alert_goods"] = snapshot_goods(current_goods)
         except Exception as exc:
             state["last_goods"] = list_goods(current_goods)
-            state["last_result"] = "email_error"
-            print(f"发送邮件失败: {exc}")
+            state["last_result"] = "processing_error"
+            print(f"通知流程失败: {exc}")
             result = {
-                "status": "email_error",
+                "status": "processing_error",
                 "error": str(exc),
                 "matched_count": matched_count,
                 "changed_count": changed_count,
