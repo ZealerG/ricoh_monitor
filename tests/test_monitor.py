@@ -57,12 +57,42 @@ class ChangeDetectionTests(unittest.TestCase):
         )
 
 
+class NotificationModeTests(unittest.TestCase):
+    def test_presence_mode_notifies_for_existing_goods_even_without_change(self):
+        previous = {
+            "132": {"id": "132", "name": "官翻品 WG-1000 Gray", "price": "1519.00", "stock": 0},
+        }
+        current_goods = [
+            {"id": 132, "store_name": "官翻品 WG-1000 Gray", "price": "1519.00", "stock": 0},
+        ]
+
+        notify_goods = monitor.notification_goods(current_goods, previous, "presence")
+
+        self.assertEqual(
+            notify_goods,
+            [{"id": "132", "name": "官翻品 WG-1000 Gray", "price": "1519.00", "stock": 0}],
+        )
+
+    def test_change_mode_only_notifies_when_goods_changed(self):
+        previous = {
+            "132": {"id": "132", "name": "官翻品 WG-1000 Gray", "price": "1519.00", "stock": 0},
+        }
+        current_goods = [
+            {"id": 132, "store_name": "官翻品 WG-1000 Gray", "price": "1519.00", "stock": 0},
+        ]
+
+        notify_goods = monitor.notification_goods(current_goods, previous, "change")
+
+        self.assertEqual(notify_goods, [])
+
+
 class EmailFormattingTests(unittest.TestCase):
     def test_build_email_content_accepts_raw_current_goods(self):
         config = {
             "include_keywords": ["WG-1000"],
             "exclude_keywords": [],
             "match_mode": "any",
+            "alert_mode": "presence",
             "notify_zero_stock": True,
         }
         current_goods = [
@@ -75,6 +105,7 @@ class EmailFormattingTests(unittest.TestCase):
         subject, body = monitor.build_email_content(current_goods, changed, config)
 
         self.assertIn("WG-1000", subject)
+        self.assertIn("提醒模式: presence", body)
         self.assertIn("官翻品 WG-1000 Gray", body)
         self.assertIn("库存: 0", body)
 
@@ -118,6 +149,7 @@ class ConfigLoggingTests(unittest.TestCase):
             "include_keywords": ["WG-1000"],
             "exclude_keywords": ["配件"],
             "match_mode": "any",
+            "alert_mode": "presence",
             "notify_zero_stock": True,
             "poll_interval": 30,
             "state_path": "ricoh_monitor_state.json",

@@ -1,11 +1,11 @@
 # 理光映像商城监控脚本
 
-监控理光映像商城（https://newsite.ricn-mall.com）的商品库存，商品状态变化时自动发送邮件通知。
+监控理光映像商城（https://newsite.ricn-mall.com）的商品库存，支持“商品仍在页面上就持续提醒”或“仅状态变化时提醒”两种模式。
 
 ## 功能特性
 
 - 🔍 支持包含词 / 排除词的关键词监控
-- 📧 仅在商品状态变化时发送邮件通知（避免重复轰炸）
+- 📧 支持 `presence` / `change` 两种提醒模式
 - 🔄 支持 GitHub Actions 自动运行（原生 schedule 为每 5 分钟，可配合 `repository_dispatch`）
 - 🛡️ 403 自动冷却、UA 轮换等反爬策略
 - 📋 GitHub Actions Summary 输出，便于排障
@@ -35,6 +35,7 @@
   - `KEYWORDS`
   - `EXCLUDE_KEYWORDS`
   - `MATCH_MODE`
+  - `ALERT_MODE`
   - `NOTIFY_ZERO_STOCK`
 
 这样 workflow 日志里能看到这些非敏感配置的实际生效值。如果你继续把它们放在 `Secrets` 里，GitHub 可能会把日志里的对应值自动遮罩成 `***`。
@@ -54,6 +55,7 @@
 | `KEYWORDS` | Variable | 多个包含词，逗号分隔（推荐，如 `GR III,GR IIIx,HDF`） |
 | `EXCLUDE_KEYWORDS` | Variable | 排除词，逗号分隔（如 `RING,金圈,配件`） |
 | `MATCH_MODE` | Variable | `any` 或 `all`，默认 `any` |
+| `ALERT_MODE` | Variable | `presence` 或 `change`，默认 `presence` |
 | `NOTIFY_ZERO_STOCK` | Variable | 是否连 0 库存商品也通知，默认 `false` |
 
 3. 如需比 5 分钟更高的频率，可配置 cron-job.org 触发 `repository_dispatch`
@@ -68,6 +70,7 @@
 - `KEYWORDS`
 - `EXCLUDE_KEYWORDS`
 - `MATCH_MODE`
+- `ALERT_MODE`
 - `NOTIFY_ZERO_STOCK`
 - `POLL_INTERVAL`
 - `STATE_PATH`
@@ -88,6 +91,7 @@
 KEYWORDS="GR III,GR IIIx,HDF"
 EXCLUDE_KEYWORDS="RING,金圈,配件"
 MATCH_MODE="any"
+ALERT_MODE="presence"
 NOTIFY_ZERO_STOCK="false"
 ```
 
@@ -117,9 +121,9 @@ NOTIFY_ZERO_STOCK="false"
    - 默认只监控有库存商品；如果 `NOTIFY_ZERO_STOCK=true`，则 0 库存也会进入通知范围。
 
 5. 通知逻辑
-   - 只有“命中商品快照发生变化”时才给全部收件人发提醒邮件。
-   - 变化包含：新商品出现、库存变化、价格变化。
-   - 没有变化时不会重复发邮件，避免刷屏。
+   - `ALERT_MODE=presence`：只要商品还出现在页面上，每次轮询都会给全部收件人发提醒邮件。
+   - `ALERT_MODE=change`：只有“命中商品快照发生变化”时才给全部收件人发提醒邮件。
+   - `change` 模式下，变化包含：新商品出现、库存变化、价格变化。
 
 6. 异常处理
    - 如果遇到 `config_error`、`http_error`、`network_error`、`response_error`、`email_error` 或 `403_cooldown`，脚本会尽量给 `RECEIVER_EMAILS` 的第一个地址发送一封诊断邮件。
@@ -147,6 +151,7 @@ export SMTP_PASSWORD="your_smtp_password"
 export RECEIVER_EMAILS="receiver@example.com"
 export KEYWORDS="GR III,GR IIIx,HDF"
 export EXCLUDE_KEYWORDS="RING,金圈,配件"
+export ALERT_MODE="presence"
 
 # 单次运行
 python3 ricoh_email_monitor.py

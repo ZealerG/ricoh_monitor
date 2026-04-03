@@ -80,8 +80,11 @@ def load_config():
     include_keywords = parse_csv_env(os.environ.get("KEYWORDS") or os.environ.get("KEYWORD", DEFAULT_KEYWORD))
     exclude_keywords = parse_csv_env(os.environ.get("EXCLUDE_KEYWORDS", ""))
     match_mode = os.environ.get("MATCH_MODE", "any").strip().lower() or "any"
+    alert_mode = os.environ.get("ALERT_MODE", "presence").strip().lower() or "presence"
     if match_mode not in {"any", "all"}:
         match_mode = "any"
+    if alert_mode not in {"presence", "change"}:
+        alert_mode = "presence"
 
     return {
         "smtp_server": os.environ.get("SMTP_SERVER", DEFAULT_SMTP_SERVER).strip(),
@@ -95,6 +98,7 @@ def load_config():
         "exclude_keywords": exclude_keywords,
         "exclude_keywords_normalized": [normalize_text(item) for item in exclude_keywords if normalize_text(item)],
         "match_mode": match_mode,
+        "alert_mode": alert_mode,
         "state_path": os.environ.get("STATE_PATH", DEFAULT_STATE_PATH).strip() or DEFAULT_STATE_PATH,
         "poll_interval": parse_int(os.environ.get("POLL_INTERVAL"), DEFAULT_POLL_INTERVAL),
         "notify_zero_stock": parse_bool(os.environ.get("NOTIFY_ZERO_STOCK"), default=False),
@@ -143,6 +147,7 @@ def print_effective_config(config):
     print(f"KEYWORDS={config['include_keywords'] or []}")
     print(f"EXCLUDE_KEYWORDS={config['exclude_keywords'] or []}")
     print(f"MATCH_MODE={config['match_mode']}")
+    print(f"ALERT_MODE={config['alert_mode']}")
     print(f"NOTIFY_ZERO_STOCK={config['notify_zero_stock']}")
     print(f"POLL_INTERVAL={config['poll_interval']}")
     print(f"STATE_PATH={config['state_path']}")
@@ -354,6 +359,12 @@ def changed_goods(current_goods, previous_snapshot):
     return changed
 
 
+def notification_goods(current_goods, previous_snapshot, alert_mode):
+    if alert_mode == "presence":
+        return [normalize_snapshot(product) for product in current_goods]
+    return changed_goods(current_goods, previous_snapshot)
+
+
 def list_goods(goods):
     return [normalize_snapshot(product) for product in goods][:MAX_GOODS_HISTORY]
 
@@ -375,21 +386,26 @@ def format_goods_lines(goods):
     return "\n".join(lines).strip()
 
 
-def build_email_content(current_goods, changed, config):
+def build_email_content(current_goods, notify_goods, config):
     normalized_current_goods = [normalize_snapshot(item) for item in current_goods]
-    normalized_changed = [normalize_snapshot(item) for item in changed]
+    normalized_notify_goods = [normalize_snapshot(item) for item in notify_goods]
     keyword_label = ", ".join(config["include_keywords"])
     if config["exclude_keywords"]:
         keyword_label = f"{keyword_label}（排除: {', '.join(config['exclude_keywords'])}）"
-
-    subject = f'提醒：理光映像商城 "{keyword_label}" 商品状态有变化'
+    if config["alert_mode"] == "presence":
+        subject = f'提醒：理光映像商城 "{keyword_label}" 商品仍在页面中'
+        notify_heading = "本次通知商品"
+    else:
+        subject = f'提醒：理光映像商城 "{keyword_label}" 商品状态有变化'
+        notify_heading = "本次新增或变化商品"
     body_parts = [
         f"监控关键词: {keyword_label}",
         f"匹配模式: {config['match_mode']}",
+        f"提醒模式: {config['alert_mode']}",
         f"通知零库存: {'是' if config['notify_zero_stock'] else '否'}",
         "",
-        f"本次新增或变化商品: {len(normalized_changed)} 个",
-        format_goods_lines(normalized_changed),
+        f"{notify_heading}: {len(normalized_notify_goods)} 个",
+        format_goods_lines(normalized_notify_goods),
         "",
         f"当前命中的监控商品: {len(normalized_current_goods)} 个",
         format_goods_lines(normalized_current_goods),
@@ -462,6 +478,7 @@ def build_failure_email_content(result, config, state):
         f"监控关键词: {', '.join(config['include_keywords'])}",
         f"排除关键词: {', '.join(config['exclude_keywords']) or '-'}",
         f"匹配模式: {config['match_mode']}",
+        f"提醒模式: {config['alert_mode']}",
         f"通知零库存: {'是' if config['notify_zero_stock'] else '否'}",
         f"CID: {config['cid']}",
         f"状态文件: {config['state_path']}",
@@ -521,6 +538,7 @@ def append_github_summary(result, config):
         f"- exclude_keywords: `{', '.join(config['exclude_keywords']) or '-'}`",
         f"- matched_count: `{result.get('matched_count', 0)}`",
         f"- changed_count: `{result.get('changed_count', 0)}`",
+        f"- notify_count: `{result.get('notify_count', 0)}`",
     ]
     if "error" in result:
         lines.append(f"- error: `{result['error']}`")
@@ -530,6 +548,7 @@ def append_github_summary(result, config):
         [
             f"- cid: `{config['cid']}`",
             f"- match_mode: `{config['match_mode']}`",
+            f"- alert_mode: `{config['alert_mode']}`",
             f"- notify_zero_stock: `{config['notify_zero_stock']}`",
             f"- poll_interval: `{config['poll_interval']}`",
             f"- receiver_count: `{len(config['receiver_emails'])}`",
@@ -559,7 +578,7 @@ def run():
         state["last_result"] = "config_error"
         state["last_goods"] = []
         print(f"配置错误: {message}")
-        result = {"status": "config_error", "error": message, "matched_count": 0, "changed_count": 0}
+        result = {"status": "config_error", "error": message, "matched_count": 0, "changed_count": 0, "notify_count": 0}
         notify_failure_if_needed(result, config, state)
         save_state(state, config["state_path"])
         append_github_summary(result, config)
@@ -570,7 +589,7 @@ def run():
     if now < state.get("cooldown_until", 0):
         remaining = state["cooldown_until"] - now
         print(f"处于冷却期，跳过请求（剩余 {remaining} 秒）")
-        result = {"status": "cooldown", "remaining": remaining, "matched_count": 0, "changed_count": 0}
+        result = {"status": "cooldown", "remaining": remaining, "matched_count": 0, "changed_count": 0, "notify_count": 0}
         append_github_summary(result, config)
         return result
 
@@ -594,7 +613,7 @@ def run():
             state["cooldown_until"] = int(time.time()) + cooldown_seconds
             state["last_result"] = "403_cooldown"
             print(f"403 Forbidden，进入 {cooldown_seconds} 秒冷却期")
-            result = {"status": "403_cooldown", "matched_count": 0, "changed_count": 0}
+            result = {"status": "403_cooldown", "matched_count": 0, "changed_count": 0, "notify_count": 0}
             notify_failure_if_needed(result, config, state)
             save_state(state, config["state_path"])
             append_github_summary(result, config)
@@ -607,6 +626,7 @@ def run():
             "error": str(exc),
             "matched_count": 0,
             "changed_count": 0,
+            "notify_count": 0,
             "traceback": traceback.format_exc(),
         }
         notify_failure_if_needed(result, config, state)
@@ -621,6 +641,7 @@ def run():
             "error": str(exc),
             "matched_count": 0,
             "changed_count": 0,
+            "notify_count": 0,
             "traceback": traceback.format_exc(),
         }
         notify_failure_if_needed(result, config, state)
@@ -635,6 +656,7 @@ def run():
             "error": str(exc),
             "matched_count": 0,
             "changed_count": 0,
+            "notify_count": 0,
             "traceback": traceback.format_exc(),
         }
         notify_failure_if_needed(result, config, state)
@@ -651,13 +673,15 @@ def run():
     current_goods = filter_goods(all_goods, config)
     previous_alert_goods = state.get("last_alert_goods", {})
     changed = changed_goods(current_goods, previous_alert_goods)
+    notify_goods = notification_goods(current_goods, previous_alert_goods, config["alert_mode"])
 
     matched_count = len(current_goods)
     changed_count = len(changed)
+    notify_count = len(notify_goods)
 
-    if changed:
+    if notify_goods:
         try:
-            subject, body = build_email_content(current_goods, changed, config)
+            subject, body = build_email_content(current_goods, notify_goods, config)
             send_email(subject, body, config)
             print(f"已发送邮件至 {', '.join(config['receiver_emails'])}")
             state["last_alert_goods"] = snapshot_goods(current_goods)
@@ -670,6 +694,7 @@ def run():
                 "error": str(exc),
                 "matched_count": matched_count,
                 "changed_count": changed_count,
+                "notify_count": notify_count,
                 "traceback": traceback.format_exc(),
             }
             notify_failure_if_needed(result, config, state)
@@ -684,7 +709,7 @@ def run():
     state["last_result"] = "ok"
     save_state(state, config["state_path"])
 
-    result = {"status": "ok", "matched_count": matched_count, "changed_count": changed_count}
+    result = {"status": "ok", "matched_count": matched_count, "changed_count": changed_count, "notify_count": notify_count}
     append_github_summary(result, config)
     return result
 
