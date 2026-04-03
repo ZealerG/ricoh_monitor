@@ -16,26 +16,69 @@
 ### GitHub Actions（推荐）
 
 1. Fork 本仓库
-2. 配置 Repository Secrets（Settings → Secrets and variables → Actions）：
+2. 配置 Actions Secrets 和 Variables（Settings → Secrets and variables → Actions）：
 
-| Secret | 说明 |
-|--------|------|
-| `GIST_ID` | 存储状态的 Gist ID |
-| `GIST_PAT` | GitHub PAT（需 gist 权限） |
-| `SMTP_SERVER` | SMTP 服务器（如 smtp.126.com） |
-| `SMTP_PORT` | SMTP 端口（如 465） |
-| `SMTP_USER` | 发件人邮箱 |
-| `SMTP_PASSWORD` | SMTP 授权码 |
-| `RECEIVER_EMAILS` | 收件人邮箱（多个用逗号分隔，第一个收件人会接收异常诊断邮件） |
-| `KEYWORD` | 单个兼容关键词（如 `GR III`） |
-| `KEYWORDS` | 多个包含词，逗号分隔（推荐，如 `GR III,GR IIIx,HDF`） |
-| `EXCLUDE_KEYWORDS` | 排除词，逗号分隔（如 `RING,金圈,配件`） |
-| `MATCH_MODE` | `any` 或 `all`，默认 `any` |
-| `NOTIFY_ZERO_STOCK` | 是否连 0 库存商品也通知，默认 `false` |
+建议区分：
+
+- `Secrets`
+  - `GIST_ID`
+  - `GIST_PAT`
+  - `SMTP_SERVER`
+  - `SMTP_PORT`
+  - `SMTP_USER`
+  - `SMTP_PASSWORD`
+  - `RECEIVER_EMAILS`
+- `Variables`
+  - `CID`
+  - `POLL_INTERVAL`
+  - `KEYWORD`
+  - `KEYWORDS`
+  - `EXCLUDE_KEYWORDS`
+  - `MATCH_MODE`
+  - `NOTIFY_ZERO_STOCK`
+
+这样 workflow 日志里能看到这些非敏感配置的实际生效值。如果你继续把它们放在 `Secrets` 里，GitHub 可能会把日志里的对应值自动遮罩成 `***`。
+
+| 配置项 | 建议位置 | 说明 |
+|--------|----------|------|
+| `GIST_ID` | Secret | 存储状态的 Gist ID |
+| `GIST_PAT` | Secret | GitHub PAT（需 gist 权限） |
+| `SMTP_SERVER` | Secret | SMTP 服务器（如 smtp.126.com） |
+| `SMTP_PORT` | Secret | SMTP 端口（如 465） |
+| `SMTP_USER` | Secret | 发件人邮箱 |
+| `SMTP_PASSWORD` | Secret | SMTP 授权码 |
+| `RECEIVER_EMAILS` | Secret | 收件人邮箱（多个用逗号分隔，第一个收件人会接收异常诊断邮件） |
+| `CID` | Variable | 商品分类 ID，默认 `9` |
+| `POLL_INTERVAL` | Variable | 本地 loop 模式轮询间隔，GitHub Actions 通常用不到 |
+| `KEYWORD` | Variable | 单个兼容关键词（如 `GR III`） |
+| `KEYWORDS` | Variable | 多个包含词，逗号分隔（推荐，如 `GR III,GR IIIx,HDF`） |
+| `EXCLUDE_KEYWORDS` | Variable | 排除词，逗号分隔（如 `RING,金圈,配件`） |
+| `MATCH_MODE` | Variable | `any` 或 `all`，默认 `any` |
+| `NOTIFY_ZERO_STOCK` | Variable | 是否连 0 库存商品也通知，默认 `false` |
 
 3. 如需比 5 分钟更高的频率，可配置 cron-job.org 触发 `repository_dispatch`
 
 详细步骤参考 workflow 文件中的注释。
+
+### 在日志里看配置
+
+脚本每次运行开始时都会输出一段 `Effective Monitor Config`，其中会显示：
+
+- `CID`
+- `KEYWORDS`
+- `EXCLUDE_KEYWORDS`
+- `MATCH_MODE`
+- `NOTIFY_ZERO_STOCK`
+- `POLL_INTERVAL`
+- `STATE_PATH`
+- `RECEIVER_COUNT`
+- `PRIMARY_RECEIVER` 的脱敏版本
+- SMTP 是否已配置
+
+注意：
+
+- 如果某个值来自 GitHub `Secrets`，GitHub 可能会把日志中的该值替换成 `***`。
+- 如果你希望看到明文配置，请把非敏感项放到 `Variables`，不要放在 `Secrets`。
 
 ### 抢 GR 推荐配置
 

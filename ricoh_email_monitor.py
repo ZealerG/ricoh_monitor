@@ -123,6 +123,38 @@ def validate_config(config):
     return errors
 
 
+def mask_email(value):
+    email = str(value or "").strip()
+    if "@" not in email:
+        return "***" if email else "-"
+    local_part, domain = email.split("@", 1)
+    if not local_part:
+        return f"***@{domain}"
+    if len(local_part) <= 2:
+        masked_local = local_part[0] + "*"
+    else:
+        masked_local = local_part[0] + "*" * (len(local_part) - 2) + local_part[-1]
+    return f"{masked_local}@{domain}"
+
+
+def print_effective_config(config):
+    print("=== Effective Monitor Config ===")
+    print(f"CID={config['cid']}")
+    print(f"KEYWORDS={config['include_keywords'] or []}")
+    print(f"EXCLUDE_KEYWORDS={config['exclude_keywords'] or []}")
+    print(f"MATCH_MODE={config['match_mode']}")
+    print(f"NOTIFY_ZERO_STOCK={config['notify_zero_stock']}")
+    print(f"POLL_INTERVAL={config['poll_interval']}")
+    print(f"STATE_PATH={config['state_path']}")
+    print(f"RECEIVER_COUNT={len(config['receiver_emails'])}")
+    print(f"PRIMARY_RECEIVER={mask_email(config['receiver_emails'][0]) if config['receiver_emails'] else '-'}")
+    print(f"SMTP_SERVER_SET={bool(config['smtp_server'])}")
+    print(f"SMTP_PORT={config['smtp_port']}")
+    print(f"SMTP_USER_SET={bool(config['smtp_user'])}")
+    print(f"SMTP_PASSWORD_SET={bool(config['smtp_password'])}")
+    print("=== End Effective Monitor Config ===")
+
+
 def default_state():
     return {
         "version": STATE_VERSION,
@@ -494,6 +526,16 @@ def append_github_summary(result, config):
         lines.append(f"- error: `{result['error']}`")
     if "remaining" in result:
         lines.append(f"- cooldown_remaining_seconds: `{result['remaining']}`")
+    lines.extend(
+        [
+            f"- cid: `{config['cid']}`",
+            f"- match_mode: `{config['match_mode']}`",
+            f"- notify_zero_stock: `{config['notify_zero_stock']}`",
+            f"- poll_interval: `{config['poll_interval']}`",
+            f"- receiver_count: `{len(config['receiver_emails'])}`",
+            f"- primary_receiver: `{mask_email(config['receiver_emails'][0]) if config['receiver_emails'] else '-'}`",
+        ]
+    )
 
     try:
         with open(summary_path, "a", encoding="utf-8") as file_handle:
@@ -510,6 +552,7 @@ def exit_code_for(result):
 def run():
     config = load_config()
     state = load_state(config["state_path"])
+    print_effective_config(config)
     config_errors = validate_config(config)
     if config_errors:
         message = "; ".join(config_errors)

@@ -57,11 +57,13 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           RECEIVER_EMAILS: ${{ secrets.RECEIVER_EMAILS }}
           STATE_PATH: ${{ env.STATE_FILE }}
-          KEYWORD: ${{ secrets.KEYWORD }}
-          KEYWORDS: ${{ secrets.KEYWORDS }}
-          EXCLUDE_KEYWORDS: ${{ secrets.EXCLUDE_KEYWORDS }}
-          MATCH_MODE: ${{ secrets.MATCH_MODE }}
-          NOTIFY_ZERO_STOCK: ${{ secrets.NOTIFY_ZERO_STOCK }}
+          CID: ${{ vars.CID || secrets.CID }}
+          POLL_INTERVAL: ${{ vars.POLL_INTERVAL || secrets.POLL_INTERVAL }}
+          KEYWORD: ${{ vars.KEYWORD || secrets.KEYWORD }}
+          KEYWORDS: ${{ vars.KEYWORDS || secrets.KEYWORDS }}
+          EXCLUDE_KEYWORDS: ${{ vars.EXCLUDE_KEYWORDS || secrets.EXCLUDE_KEYWORDS }}
+          MATCH_MODE: ${{ vars.MATCH_MODE || secrets.MATCH_MODE }}
+          NOTIFY_ZERO_STOCK: ${{ vars.NOTIFY_ZERO_STOCK || secrets.NOTIFY_ZERO_STOCK }}
         run: python ricoh_email_monitor.py
 
       - name: Save state to Gist

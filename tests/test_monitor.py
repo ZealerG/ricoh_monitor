@@ -1,6 +1,8 @@
 import sys
 import unittest
+from io import StringIO
 from pathlib import Path
+from contextlib import redirect_stdout
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -107,6 +109,34 @@ class FailureNotificationTests(unittest.TestCase):
             self.assertTrue(monitor.should_send_failure_email(state, result))
         finally:
             monitor.time.time = original_time
+
+
+class ConfigLoggingTests(unittest.TestCase):
+    def test_print_effective_config_masks_primary_email(self):
+        config = {
+            "cid": 9,
+            "include_keywords": ["WG-1000"],
+            "exclude_keywords": ["配件"],
+            "match_mode": "any",
+            "notify_zero_stock": True,
+            "poll_interval": 30,
+            "state_path": "ricoh_monitor_state.json",
+            "receiver_emails": ["abcde@example.com"],
+            "smtp_server": "smtp.126.com",
+            "smtp_port": 465,
+            "smtp_user": "sender@example.com",
+            "smtp_password": "secret",
+        }
+
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            monitor.print_effective_config(config)
+        output = buffer.getvalue()
+
+        self.assertIn("PRIMARY_RECEIVER=a***e@example.com", output)
+        self.assertIn("KEYWORDS=['WG-1000']", output)
+        self.assertIn("SMTP_PASSWORD_SET=True", output)
+        self.assertNotIn("abcde@example.com", output)
 
 
 if __name__ == "__main__":
